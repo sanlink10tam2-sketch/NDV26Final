@@ -78,7 +78,7 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    const fetchData = async (retries = 3) => {
+    const fetchData = async (isInitial = false, retries = 3) => {
       try {
         const response = await fetch('/api/data');
         if (!response.ok) {
@@ -87,19 +87,10 @@ const App: React.FC = () => {
         
         const contentType = response.headers.get("content-type");
         if (!contentType || !contentType.includes("application/json")) {
-          const text = await response.text();
-          console.error("Phản hồi không phải JSON:", text.slice(0, 100));
           throw new Error("Server không trả về JSON");
         }
 
-        const text = await response.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (parseError) {
-          console.error("Lỗi parse JSON. Nội dung phản hồi:", text.slice(0, 200));
-          throw new Error("Dữ liệu từ server không hợp lệ");
-        }
+        const data = await response.json();
         
         if (data.notifications) setNotifications(data.notifications);
         if (data.users) setRegisteredUsers(data.users);
@@ -107,45 +98,42 @@ const App: React.FC = () => {
         if (data.budget !== undefined) setSystemBudget(data.budget);
         if (data.rankProfit !== undefined) setRankProfit(data.rankProfit);
 
-        const savedUser = localStorage.getItem('vnv_user');
-        if (savedUser && savedUser !== 'null' && savedUser !== '') {
-          try {
-            const parsedUser = JSON.parse(savedUser);
-            // Refresh user data from server
-            const freshUser = data.users.find((u: User) => u.id === parsedUser.id);
-            if (freshUser) {
-              setUser(freshUser);
-              if (currentView === AppView.LOGIN) {
+        // Only handle auto-login during the very first fetch
+        if (isInitial) {
+          const savedUser = localStorage.getItem('vnv_user');
+          if (savedUser && savedUser !== 'null' && savedUser !== '') {
+            try {
+              const parsedUser = JSON.parse(savedUser);
+              const freshUser = data.users.find((u: User) => u.id === parsedUser.id);
+              if (freshUser) {
+                setUser(freshUser);
                 setCurrentView(freshUser.isAdmin ? AppView.ADMIN_DASHBOARD : AppView.DASHBOARD);
-              }
-            } else if (parsedUser.isAdmin) {
-              setUser(parsedUser);
-              if (currentView === AppView.LOGIN) {
+              } else if (parsedUser.isAdmin) {
+                setUser(parsedUser);
                 setCurrentView(AppView.ADMIN_DASHBOARD);
               }
+            } catch (jsonError) {
+              localStorage.removeItem('vnv_user');
             }
-          } catch (jsonError) {
-            console.warn("Lỗi parse vnv_user từ localStorage:", jsonError);
-            localStorage.removeItem('vnv_user');
+          }
+        } else if (user) {
+          // Update current user data if changed in background
+          const updatedMe = data.users.find((u: User) => u.id === user.id);
+          if (updatedMe && JSON.stringify(updatedMe) !== JSON.stringify(user)) {
+            setUser(updatedMe);
           }
         }
       } catch (e: any) {
         if (retries > 0) {
-          console.warn(`Thử lại tải dữ liệu... (${retries} lần còn lại). Lỗi: ${e.message}`);
-          setTimeout(() => fetchData(retries - 1), 2000);
-        } else {
-          console.error("Lỗi khi tải dữ liệu từ server sau nhiều lần thử:", e);
+          setTimeout(() => fetchData(isInitial, retries - 1), 2000);
         }
       } finally {
-        if (retries === 0 || !isInitialized) {
-          setIsInitialized(true);
-        }
+        if (isInitial) setIsInitialized(true);
       }
     };
-    fetchData();
-    
-    // Polling for updates every 10 seconds
-    const interval = setInterval(fetchData, 10000);
+
+    fetchData(true);
+    const interval = setInterval(() => fetchData(false), 10000);
     return () => clearInterval(interval);
   }, []);
 
