@@ -12,6 +12,7 @@ import AdminUserManagement from './components/AdminUserManagement';
 import AdminBudget from './components/AdminBudget';
 import { User as UserIcon, Home, Briefcase, Medal, LayoutGrid, Users, Wallet, AlertTriangle } from 'lucide-react';
 import { compressImage } from './utils';
+import BankUpdateWarning from './components/BankUpdateWarning';
 
 interface ErrorBoundaryProps {
   children?: React.ReactNode;
@@ -63,6 +64,12 @@ const App: React.FC = () => {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [registerError, setRegisterError] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [showBankWarning, setShowBankWarning] = useState(false);
+
+  const hasBankInfo = (u: User | null) => {
+    if (!u || u.isAdmin) return true;
+    return !!(u.bankName && u.bankAccountNumber && u.bankAccountHolder);
+  };
 
   const addNotification = (userId: string, title: string, message: string, type: 'LOAN' | 'RANK' | 'SYSTEM') => {
     const newNotif: Notification = {
@@ -313,6 +320,7 @@ const App: React.FC = () => {
       };
       setUser(adminUser);
       setCurrentView(AppView.ADMIN_DASHBOARD);
+      setShowBankWarning(false);
       return;
     }
     const existingUser = registeredUsers.find(u => u.phone === phone);
@@ -320,6 +328,9 @@ const App: React.FC = () => {
       const loggedInUser = { ...existingUser, isLoggedIn: true };
       setUser(loggedInUser);
       setCurrentView(AppView.DASHBOARD);
+      if (!hasBankInfo(loggedInUser)) {
+        setShowBankWarning(true);
+      }
     } else {
       setLoginError("Thông tin đăng nhập không chính xác.");
     }
@@ -347,6 +358,7 @@ const App: React.FC = () => {
     setRegisteredUsers(prev => [...prev, newUser]);
     setUser(newUser);
     setCurrentView(AppView.DASHBOARD);
+    setShowBankWarning(true);
   };
 
   const handleLogout = () => {
@@ -579,9 +591,21 @@ const App: React.FC = () => {
             loans={loans.filter(l => l.userId === user?.id)} 
             notifications={notifications.filter(n => n.userId === user?.id)}
             systemBudget={systemBudget} 
-            onApply={() => setCurrentView(AppView.APPLY_LOAN)} 
+            onApply={() => {
+              if (!hasBankInfo(user)) {
+                setShowBankWarning(true);
+                return;
+              }
+              setCurrentView(AppView.APPLY_LOAN);
+            }} 
             onLogout={handleLogout} 
-            onViewAllLoans={() => setCurrentView(AppView.APPLY_LOAN)}
+            onViewAllLoans={() => {
+              if (!hasBankInfo(user)) {
+                setShowBankWarning(true);
+                return;
+              }
+              setCurrentView(AppView.APPLY_LOAN);
+            }}
             onSettleLoan={(loan) => {
               setSettleLoanFromDash(loan);
               setCurrentView(AppView.APPLY_LOAN);
@@ -625,6 +649,15 @@ const App: React.FC = () => {
                 setUser(updatedUser);
                 setRegisteredUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
                 addNotification(user.id, 'Cập nhật tài khoản', 'Thông tin tài khoản nhận tiền của bạn đã được cập nhật.', 'SYSTEM');
+                setShowBankWarning(false);
+              }
+            }}
+            onUpdateProfile={(userData) => {
+              if (user) {
+                const updatedUser = { ...user, ...userData, updatedAt: Date.now() };
+                setUser(updatedUser);
+                setRegisteredUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
+                addNotification(user.id, 'Cập nhật thông tin', 'Thông tin cá nhân của bạn đã được cập nhật thành công.', 'SYSTEM');
               }
             }}
           />
@@ -650,6 +683,12 @@ const App: React.FC = () => {
     <ErrorBoundary>
       <div className="min-h-screen bg-black text-white flex flex-col max-w-md mx-auto relative overflow-hidden">
         <div className="flex-1 overflow-y-auto scroll-smooth">{renderView()}</div>
+        {showBankWarning && currentView !== AppView.PROFILE && (
+          <BankUpdateWarning onUpdate={() => {
+            setShowBankWarning(false);
+            setCurrentView(AppView.PROFILE);
+          }} />
+        )}
         {showNavbar && (
           <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-[#111111]/95 backdrop-blur-xl border-t border-white/10 px-4 py-4 flex justify-between items-center z-[50] safe-area-bottom">
             {user?.isAdmin ? (
@@ -676,6 +715,10 @@ const App: React.FC = () => {
                 </button>
                 <button 
                   onClick={() => {
+                    if (!hasBankInfo(user)) {
+                      setShowBankWarning(true);
+                      return;
+                    }
                     setSettleLoanFromDash(null);
                     setViewLoanFromDash(null);
                     setCurrentView(AppView.APPLY_LOAN);
@@ -687,6 +730,10 @@ const App: React.FC = () => {
                 </button>
                 <button 
                   onClick={() => {
+                    if (!hasBankInfo(user)) {
+                      setShowBankWarning(true);
+                      return;
+                    }
                     setSettleLoanFromDash(null);
                     setViewLoanFromDash(null);
                     setCurrentView(AppView.RANK_LIMITS);

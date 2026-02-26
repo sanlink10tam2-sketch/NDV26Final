@@ -13,23 +13,27 @@ import {
   ShieldCheck,
   X,
   Landmark,
-  CreditCard
+  CreditCard,
+  Pencil
 } from 'lucide-react';
 import SecurityModal from './SecurityModal';
 import TermsModal from './TermsModal';
 import BankInfoModal from './BankInfoModal';
+import EditProfileModal from './EditProfileModal';
 
 interface ProfileProps {
   user: User | null;
   onBack: () => void;
   onLogout: () => void;
   onUpdateBank?: (bankData: { bankName: string; bankAccountNumber: string; bankAccountHolder: string }) => void;
+  onUpdateProfile?: (userData: Partial<User>) => void;
 }
 
-const Profile: React.FC<ProfileProps> = ({ user, onBack, onLogout, onUpdateBank }) => {
+const Profile: React.FC<ProfileProps> = ({ user, onBack, onLogout, onUpdateBank, onUpdateProfile }) => {
   const [showSecurity, setShowSecurity] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [showBankInfo, setShowBankInfo] = useState(false);
+  const [showEditProfile, setShowEditProfile] = useState(false);
 
   const getRankName = (rank?: string) => {
     switch(rank) {
@@ -69,8 +73,16 @@ const Profile: React.FC<ProfileProps> = ({ user, onBack, onLogout, onUpdateBank 
 
       {/* Avatar Section */}
       <div className="flex flex-col items-center space-y-4 pt-4">
-        <div className="w-28 h-28 bg-[#ff8c00] rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(255,140,0,0.2)]">
-          <UserIcon size={48} className="text-black" />
+        <div className="relative">
+          <div className="w-28 h-28 bg-[#ff8c00] rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(255,140,0,0.2)]">
+            <UserIcon size={48} className="text-black" />
+          </div>
+          <button 
+            onClick={() => setShowEditProfile(true)}
+            className="absolute -top-1 -right-1 w-10 h-10 bg-[#111111] border border-white/10 rounded-full flex items-center justify-center text-[#ff8c00] shadow-xl active:scale-90 transition-all"
+          >
+            <Pencil size={18} />
+          </button>
         </div>
         <div className="text-center space-y-2">
           <h2 className="text-3xl font-black text-white tracking-tighter uppercase">{user?.fullName || 'CHƯA CẬP NHẬT'}</h2>
@@ -78,29 +90,6 @@ const Profile: React.FC<ProfileProps> = ({ user, onBack, onLogout, onUpdateBank 
             <span className="text-[9px] font-black text-gray-500 uppercase tracking-[0.2em]">{getRankName(user?.rank)}</span>
           </div>
           <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest mt-1">ID: {user?.id}</p>
-        </div>
-      </div>
-
-      {/* Personal Info Grid - Updated to 2 columns */}
-      <div className="grid grid-cols-2 gap-4 mt-4">
-        <div className="bg-[#111111] border border-white/5 rounded-[2rem] p-6 space-y-3">
-          <div className="w-10 h-10 bg-white/5 rounded-2xl flex items-center justify-center text-gray-400">
-            <Phone size={18} />
-          </div>
-          <div className="space-y-0.5">
-            <p className="text-[8px] font-black text-gray-600 uppercase tracking-widest">Số Zalo</p>
-            <p className="text-sm font-black text-white tracking-tight truncate">{user?.phone || '...'}</p>
-          </div>
-        </div>
-
-        <div className="bg-[#111111] border border-white/5 rounded-[2rem] p-6 space-y-3">
-          <div className="w-10 h-10 bg-white/5 rounded-2xl flex items-center justify-center text-gray-400">
-            <Hash size={18} />
-          </div>
-          <div className="space-y-0.5">
-            <p className="text-[8px] font-black text-gray-600 uppercase tracking-widest">Định danh CCCD</p>
-            <p className="text-sm font-black text-white tracking-tight truncate">{user?.idNumber || '...'}</p>
-          </div>
         </div>
       </div>
 
@@ -171,6 +160,13 @@ const Profile: React.FC<ProfileProps> = ({ user, onBack, onLogout, onUpdateBank 
           user={user} 
           onClose={() => setShowBankInfo(false)} 
           onUpdate={(data) => onUpdateBank?.(data)} 
+        />
+      )}
+      {showEditProfile && (
+        <EditProfileModal 
+          user={user} 
+          onClose={() => setShowEditProfile(false)} 
+          onUpdate={(data) => onUpdateProfile?.(data)} 
         />
       )}
     </div>
