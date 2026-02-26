@@ -52,6 +52,11 @@ const autoCleanupStorage = async () => {
       const sevenDaysAgo = now.getTime() - (7 * 24 * 60 * 60 * 1000);
 
       for (const loan of allLoans) {
+        // EXPLICIT PROTECTION: Never delete loans that are not Rejected or Settled
+        if (loan.status !== 'BỊ TỪ CHỐI' && loan.status !== 'ĐÃ TẤT TOÁN') {
+          continue;
+        }
+
         let loanTime = loan.updatedAt || 0;
         if (!loanTime && loan.createdAt) {
           // Parse "HH:mm:ss DD/MM/YYYY"
@@ -75,6 +80,7 @@ const autoCleanupStorage = async () => {
       }
 
       if (idsToDelete.length > 0) {
+        console.log(`[Cleanup] Deleting ${idsToDelete.length} old loans`);
         await supabase.from('loans').delete().in('id', idsToDelete);
       }
     }

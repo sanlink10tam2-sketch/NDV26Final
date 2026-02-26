@@ -101,13 +101,79 @@ const App: React.FC = () => {
 
         const data = await response.json();
         
-        if (data.notifications) setNotifications(data.notifications);
-        if (data.users) setRegisteredUsers(data.users);
-        if (data.loans) setLoans(data.loans);
-        if (data.budget !== undefined) setSystemBudget(data.budget);
-        if (data.rankProfit !== undefined) setRankProfit(data.rankProfit);
+        // Merge loans based on updatedAt to prevent race conditions
+        if (data.loans) {
+          setLoans(prevLoans => {
+            const merged = [...prevLoans];
+            data.loans.forEach((incomingLoan: LoanRecord) => {
+              const idx = merged.findIndex(l => l.id === incomingLoan.id);
+              if (idx === -1) {
+                merged.push(incomingLoan);
+              } else {
+                const localLoan = merged[idx];
+                // Only update if incoming data is newer or different and we haven't updated locally recently
+                if ((incomingLoan.updatedAt || 0) >= (localLoan.updatedAt || 0)) {
+                  merged[idx] = incomingLoan;
+                }
+              }
+            });
+            // Also remove loans that are no longer in the server data (unless they were just created)
+            const finalLoans = merged.filter(l => 
+              data.loans.some((il: LoanRecord) => il.id === l.id) || 
+              (Date.now() - (l.updatedAt || 0) < 5000) // Keep recently updated loans even if not in poll yet
+            );
+            
+            if (JSON.stringify(finalLoans) !== JSON.stringify(prevLoans)) {
+              return finalLoans;
+            }
+            return prevLoans;
+          });
+        }
+
+        if (data.users) {
+          setRegisteredUsers(prevUsers => {
+            const merged = [...prevUsers];
+            data.users.forEach((incomingUser: User) => {
+              const idx = merged.findIndex(u => u.id === incomingUser.id);
+              if (idx === -1) {
+                merged.push(incomingUser);
+              } else {
+                const localUser = merged[idx];
+                if ((incomingUser.updatedAt || 0) >= (localUser.updatedAt || 0)) {
+                  merged[idx] = incomingUser;
+                }
+              }
+            });
+            
+            const finalUsers = merged.filter(u => data.users.some((iu: User) => iu.id === u.id));
+            if (JSON.stringify(finalUsers) !== JSON.stringify(prevUsers)) {
+              return finalUsers;
+            }
+            return prevUsers;
+          });
+        }
+
+        if (data.notifications && JSON.stringify(data.notifications) !== JSON.stringify(notifications)) {
+          setNotifications(data.notifications);
+        }
+        if (data.budget !== undefined && data.budget !== systemBudget) {
+          setSystemBudget(data.budget);
+        }
+        if (data.rankProfit !== undefined && data.rankProfit !== rankProfit) {
+          setRankProfit(data.rankProfit);
+        }
         if (data.storageFull !== undefined) setStorageFull(data.storageFull);
         if (data.storageUsage !== undefined) setStorageUsage(data.storageUsage);
+
+        // Update current user if they are in the fetched users list
+        if (user && data.users) {
+          const freshUser = data.users.find((u: User) => u.id === user.id);
+          if (freshUser && (freshUser.updatedAt || 0) >= (user.updatedAt || 0)) {
+            if (JSON.stringify(freshUser) !== JSON.stringify(user)) {
+              setUser(freshUser);
+            }
+          }
+        }
 
         // Only handle auto-login during the very first fetch
         if (isInitial) {
@@ -370,7 +436,7 @@ const App: React.FC = () => {
     setCurrentView(AppView.LOGIN);
   };
 
-  const handleApplyLoan = (amount: number, signature?: string) => {
+  const handleApplyLoan = async (amount: number, signature?: string) => {
     if (!user) return;
     const now = new Date();
     
@@ -404,89 +470,165 @@ const App: React.FC = () => {
       updatedAt: Date.now()
     };
     
-    setLoans(prev => [newLoan, ...prev]);
-    
     const updatedUser = { 
       ...user, 
       balance: user.balance - amount,
       lastLoanSeq: nextSeq,
       updatedAt: Date.now()
     };
+
+    const newLoans = [newLoan, ...loans];
+    const newRegisteredUsers = registeredUsers.map(u => u.id === user.id ? updatedUser : u);
+
+    // Persist immediately to prevent race condition with polling
+    try {
+      await Promise.all([
+        fetch('/api/loans', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newLoans)
+        }),
+        fetch('/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newRegisteredUsers)
+        })
+      ]);
+    } catch (e) {
+      console.error("Lỗi lưu khoản vay:", e);
+    }
+    
+    setLoans(newLoans);
     setUser(updatedUser);
-    setRegisteredUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
+    setRegisteredUsers(newRegisteredUsers);
   };
 
-  const handleUpgradeRank = (targetRank: UserRank, bill: string) => {
+  const handleUpgradeRank = async (targetRank: UserRank, bill: string) => {
     if (!user) return;
     const updatedUser = { ...user, pendingUpgradeRank: targetRank, rankUpgradeBill: bill, updatedAt: Date.now() };
+    const newRegisteredUsers = registeredUsers.map(u => u.id === user.id ? updatedUser : u);
+    
+    try {
+      await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newRegisteredUsers)
+      });
+    } catch (e) {
+      console.error("Lỗi nâng hạng:", e);
+    }
+
     setUser(updatedUser);
-    setRegisteredUsers(prev => prev.map(u => u.id === user.id ? updatedUser : u));
+    setRegisteredUsers(newRegisteredUsers);
   };
 
-  const handleSettleLoan = (loanId: string, bill: string) => {
-    setLoans(prev => prev.map(loan => {
+  const handleSettleLoan = async (loanId: string, bill: string) => {
+    const newLoans = loans.map(loan => {
       if (loan.id === loanId) return { ...loan, status: 'CHỜ TẤT TOÁN', billImage: bill, updatedAt: Date.now() };
       return loan;
-    }));
+    });
+
+    try {
+      await fetch('/api/loans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newLoans)
+      });
+    } catch (e) {
+      console.error("Lỗi tất toán:", e);
+    }
+
+    setLoans(newLoans);
   };
 
-  const handleAdminLoanAction = (loanId: string, action: 'APPROVE' | 'DISBURSE' | 'SETTLE' | 'REJECT', reason?: string) => {
-    const targetLoan = loans.find(l => l.id === loanId);
-    if (!targetLoan) return;
-    if (action === 'DISBURSE') setSystemBudget(prev => prev - targetLoan.amount);
-    else if (action === 'SETTLE') setSystemBudget(prev => prev + targetLoan.amount);
+  const handleAdminLoanAction = async (loanId: string, action: 'APPROVE' | 'DISBURSE' | 'SETTLE' | 'REJECT', reason?: string) => {
+    let newLoans = [...loans];
+    let newRegisteredUsers = [...registeredUsers];
+    let usersUpdated = false;
+    let newBudget = systemBudget;
 
-    setLoans(prev => prev.map(loan => {
-      if (loan.id === loanId) {
-        let newStatus = loan.status;
-        let rejectionReason = reason || loan.rejectionReason;
+    const loanIdx = newLoans.findIndex(l => l.id === loanId);
+    if (loanIdx === -1) return;
 
-        if (action === 'REJECT') {
-          // Nếu đang chờ tất toán mà bị từ chối bill thì quay về ĐANG NỢ để nộp lại
-          if (loan.status === 'CHỜ TẤT TOÁN') {
-            newStatus = 'ĐANG NỢ';
-          } else {
-            newStatus = 'BỊ TỪ CHỐI';
-            // Hoàn lại hạn mức cho user nếu khoản vay bị từ chối (không phải từ chối bill tất toán)
-            const loanUser = registeredUsers.find(u => u.id === loan.userId);
-            if (loanUser) {
-              const updatedUser = { ...loanUser, balance: Math.min(loanUser.totalLimit, loanUser.balance + loan.amount), updatedAt: Date.now() };
-              setRegisteredUsers(users => users.map(u => u.id === loan.userId ? updatedUser : u));
-              if (user?.id === loan.userId) setUser(updatedUser);
-            }
-          }
-        } else {
-          switch(action) {
-            case 'APPROVE': newStatus = 'ĐÃ DUYỆT'; break;
-            case 'DISBURSE': newStatus = 'ĐANG NỢ'; break;
-            case 'SETTLE': newStatus = 'ĐÃ TẤT TOÁN'; break;
-          }
+    const loan = newLoans[loanIdx];
+    let newStatus = loan.status;
+    let rejectionReason = reason || loan.rejectionReason;
+
+    if (action === 'DISBURSE') newBudget -= loan.amount;
+    else if (action === 'SETTLE') newBudget += loan.amount;
+
+    if (action === 'REJECT') {
+      if (loan.status === 'CHỜ TẤT TOÁN') {
+        newStatus = 'ĐANG NỢ';
+      } else {
+        newStatus = 'BỊ TỪ CHỐI';
+        const loanUser = newRegisteredUsers.find(u => u.id === loan.userId);
+        if (loanUser) {
+          const updatedUser = { ...loanUser, balance: Math.min(loanUser.totalLimit, loanUser.balance + loan.amount), updatedAt: Date.now() };
+          newRegisteredUsers = newRegisteredUsers.map(u => u.id === loan.userId ? updatedUser : u);
+          usersUpdated = true;
         }
-
-        if (action === 'SETTLE') {
-          const loanUser = registeredUsers.find(u => u.id === loan.userId);
-          if (loanUser) {
-             const updatedUser = { ...loanUser, balance: Math.min(loanUser.totalLimit, loanUser.balance + loan.amount), rankProgress: Math.min(10, loanUser.rankProgress + 1), updatedAt: Date.now() };
-             setRegisteredUsers(users => users.map(u => u.id === loan.userId ? updatedUser : u));
-             if (user?.id === loan.userId) setUser(updatedUser);
-          }
-        }
-        if (action === 'DISBURSE') {
-          addNotification(loan.userId, 'Giải ngân thành công', `Khoản vay ID ${loan.id} đã được giải ngân vào tài khoản của bạn.`, 'LOAN');
-        }
-
-        if (action === 'SETTLE') {
-          addNotification(loan.userId, 'Tất toán thành công', `Khoản vay ID ${loan.id} đã được tất toán hoàn tất.`, 'LOAN');
-        }
-
-        if (action === 'REJECT') {
-          addNotification(loan.userId, 'Yêu cầu bị từ chối', `Yêu cầu cho khoản vay ID ${loan.id} đã bị từ chối. Lý do: ${rejectionReason || 'Không xác định'}`, 'LOAN');
-        }
-
-        return { ...loan, status: newStatus as any, rejectionReason, updatedAt: Date.now() };
       }
-      return loan;
-    }));
+    } else {
+      switch(action) {
+        case 'APPROVE': newStatus = 'ĐÃ DUYỆT'; break;
+        case 'DISBURSE': newStatus = 'ĐANG NỢ'; break;
+        case 'SETTLE': newStatus = 'ĐÃ TẤT TOÁN'; break;
+      }
+    }
+
+    if (action === 'SETTLE') {
+      const loanUser = newRegisteredUsers.find(u => u.id === loan.userId);
+      if (loanUser) {
+        const updatedUser = { ...loanUser, balance: Math.min(loanUser.totalLimit, loanUser.balance + loan.amount), rankProgress: Math.min(10, loanUser.rankProgress + 1), updatedAt: Date.now() };
+        newRegisteredUsers = newRegisteredUsers.map(u => u.id === loan.userId ? updatedUser : u);
+        usersUpdated = true;
+      }
+    }
+
+    const updatedLoan = { ...loan, status: newStatus as any, rejectionReason, updatedAt: Date.now() };
+    newLoans[loanIdx] = updatedLoan;
+
+    // Persist immediately
+    try {
+      await Promise.all([
+        fetch('/api/loans', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newLoans)
+        }),
+        usersUpdated ? fetch('/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newRegisteredUsers)
+        }) : Promise.resolve(),
+        fetch('/api/budget', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ budget: newBudget })
+        })
+      ]);
+    } catch (e) {
+      console.error("Lỗi lưu thay đổi khoản vay:", e);
+    }
+
+    setLoans(newLoans);
+    setSystemBudget(newBudget);
+    if (usersUpdated) {
+      setRegisteredUsers(newRegisteredUsers);
+      if (user && !user.isAdmin) {
+        const updatedMe = newRegisteredUsers.find(u => u.id === user.id);
+        if (updatedMe) setUser(updatedMe);
+      }
+    }
+
+    if (action === 'DISBURSE') {
+      addNotification(loan.userId, 'Giải ngân thành công', `Khoản vay ID ${loan.id} đã được giải ngân vào tài khoản của bạn.`, 'LOAN');
+    } else if (action === 'SETTLE') {
+      addNotification(loan.userId, 'Tất toán thành công', `Khoản vay ID ${loan.id} đã được tất toán hoàn tất.`, 'LOAN');
+    } else if (action === 'REJECT') {
+      addNotification(loan.userId, 'Yêu cầu bị từ chối', `Yêu cầu cho khoản vay ID ${loan.id} đã bị từ chối. Lý do: ${rejectionReason || 'Không xác định'}`, 'LOAN');
+    }
   };
 
   const handleAdminUserAction = (userId: string, action: 'APPROVE_RANK' | 'REJECT_RANK') => {
