@@ -39,6 +39,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onRegister, error }) => {
 
   const [showPass, setShowPass] = useState(false);
   const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [showConfirmPopup, setShowConfirmPopup] = useState(false);
   const [tooltips, setTooltips] = useState<Record<string, boolean>>({});
   
   const [idFront, setIdFront] = useState<string | null>(null);
@@ -77,16 +78,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onRegister, error }) => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (isFormValid) {
-      onRegister({
-        phone: formData.zaloPhone,
-        fullName: formData.fullName,
-        idNumber: formData.idNumber,
-        address: formData.address,
-        refZalo: formData.refZalo,
-        relationship: formData.relationship,
-        idFront: idFront!,
-        idBack: idBack!
-      });
+      setShowConfirmPopup(true);
     } else {
       setTooltips({
         idNumber: formData.idNumber.length < 12,
@@ -96,6 +88,20 @@ const Register: React.FC<RegisterProps> = ({ onBack, onRegister, error }) => {
         confirmPassword: formData.confirmPassword !== formData.password
       });
     }
+  };
+
+  const handleConfirmRegister = () => {
+    onRegister({
+      phone: formData.zaloPhone,
+      fullName: formData.fullName,
+      idNumber: formData.idNumber,
+      address: formData.address,
+      refZalo: formData.refZalo,
+      relationship: formData.relationship,
+      idFront: idFront!,
+      idBack: idBack!
+    });
+    setShowConfirmPopup(false);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, side: 'front' | 'back') => {
@@ -390,6 +396,38 @@ const Register: React.FC<RegisterProps> = ({ onBack, onRegister, error }) => {
       >
         Đã có tài khoản? <span className="text-gray-400">Đăng Nhập</span>
       </button>
+
+      {/* Confirmation Popup */}
+      {showConfirmPopup && (
+        <div className="fixed inset-0 z-[1000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-300">
+          <div className="bg-[#1a1a1a] w-full max-w-xs rounded-[2.5rem] p-8 space-y-6 border border-white/10 shadow-2xl text-center">
+            <div className="w-16 h-16 bg-orange-500/10 rounded-full flex items-center justify-center text-[#ff8c00] mx-auto">
+              <ShieldCheck size={32} />
+            </div>
+            <div className="space-y-2">
+              <h4 className="text-lg font-black text-white uppercase tracking-tighter">Xác nhận thông tin</h4>
+              <p className="text-[10px] font-bold text-gray-500 leading-relaxed">
+                Họ và tên người dùng <span className="text-white">BẮT BUỘC</span> phải trùng khớp với <span className="text-[#ff8c00]">CCCD</span> và <span className="text-[#ff8c00]">THẺ NGÂN HÀNG</span>. 
+                Mọi sai sót sẽ dẫn đến việc không thể giải ngân.
+              </p>
+            </div>
+            <div className="space-y-3">
+              <button 
+                onClick={handleConfirmRegister}
+                className="w-full py-4 bg-[#ff8c00] text-black font-black text-[10px] uppercase tracking-widest rounded-2xl active:scale-95 transition-all"
+              >
+                Tôi đã hiểu và đồng ý
+              </button>
+              <button 
+                onClick={() => setShowConfirmPopup(false)}
+                className="w-full py-4 bg-white/5 text-gray-500 font-black text-[10px] uppercase tracking-widest rounded-2xl active:scale-95 transition-all"
+              >
+                Kiểm tra lại
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

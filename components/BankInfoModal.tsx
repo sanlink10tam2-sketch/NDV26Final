@@ -14,7 +14,10 @@ const VIETNAM_BANKS = [
   "VPBANK", "ACB", "SACOMBANK", "HDBANK", "VIB", "TPBANK", "SHB", "MSB", 
   "SEABANK", "OCB", "LIENVIETPOSTBANK", "EXIMBANK", "ABBANK", "BACA BANK", 
   "VIET CAPITAL BANK", "VIETBANK", "NAM A BANK", "PVCOMBANK", "DONG A BANK", 
-  "NCB", "KIENLONG BANK", "SAIGONBANK", "PG BANK", "VIET A BANK"
+  "NCB", "KIENLONG BANK", "SAIGONBANK", "PG BANK", "VIET A BANK", "WOORI BANK",
+  "SHINHAN BANK", "HSBC", "STANDARD CHARTERED", "PUBLIC BANK", "CIMB", "UOB",
+  "INDOVINA BANK", "VRB", "CAKE", "TIMO", "LOMO", "TNEX", "KASIKORNBANK",
+  "CITIBANK", "DEUTSCHE BANK", "BANGKOK BANK", "MAYBANK", "JPMORGAN CHASE"
 ];
 
 const BankInfoModal: React.FC<BankInfoModalProps> = ({ user, onClose, onUpdate }) => {
@@ -23,6 +26,17 @@ const BankInfoModal: React.FC<BankInfoModalProps> = ({ user, onClose, onUpdate }
   const [bankAccountHolder, setBankAccountHolder] = useState(user?.bankAccountHolder || '');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+
+  const normalizeName = (str: string) => {
+    if (!str) return "";
+    return str
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/đ/g, "d")
+      .replace(/Đ/g, "D")
+      .toUpperCase()
+      .trim();
+  };
 
   const suggestions = useMemo(() => {
     if (!bankName) return [];
@@ -36,11 +50,24 @@ const BankInfoModal: React.FC<BankInfoModalProps> = ({ user, onClose, onUpdate }
 
   const isAccountHolderInvalid = hasAccents(bankAccountHolder);
 
+  const normalizedUserFullName = useMemo(() => normalizeName(user?.fullName || ""), [user?.fullName]);
+  const normalizedAccountHolder = useMemo(() => normalizeName(bankAccountHolder), [bankAccountHolder]);
+  const isNameMismatched = bankAccountHolder.length > 0 && normalizedAccountHolder !== normalizedUserFullName;
+
   const handleSave = () => {
     if (!bankName || !bankAccountNumber || !bankAccountHolder) {
       alert("Vui lòng điền đầy đủ thông tin.");
       return;
     }
+
+    const normalizedUserFullName = normalizeName(user?.fullName || "");
+    const normalizedAccountHolder = normalizeName(bankAccountHolder);
+
+    if (normalizedAccountHolder !== normalizedUserFullName) {
+      // Tooltip will show the error, but we also keep alert as a fallback
+      return;
+    }
+
     setShowConfirm(true);
   };
 
@@ -141,8 +168,17 @@ const BankInfoModal: React.FC<BankInfoModalProps> = ({ user, onClose, onUpdate }
                 value={bankAccountHolder}
                 onChange={(e) => setBankAccountHolder(e.target.value.toUpperCase())}
                 placeholder="TÊN KHÔNG DẤU..."
-                className={`w-full bg-black border rounded-2xl py-4 pl-14 pr-6 text-sm font-bold text-white placeholder-gray-800 focus:outline-none transition-all ${isAccountHolderInvalid ? 'border-red-500/50' : 'border-white/5 focus:border-[#ff8c00]/30'}`}
+                className={`w-full bg-black border rounded-2xl py-4 pl-14 pr-6 text-sm font-bold text-white placeholder-gray-800 focus:outline-none transition-all ${isAccountHolderInvalid || isNameMismatched ? 'border-red-500/50' : 'border-white/5 focus:border-[#ff8c00]/30'}`}
               />
+              {isNameMismatched && (
+                <div className="absolute -top-12 left-0 right-0 z-20 animate-in slide-in-from-bottom-2 duration-300">
+                  <div className="bg-red-600 text-white text-[9px] font-black py-2 px-4 rounded-xl flex items-center gap-2 shadow-xl relative">
+                    <AlertCircle size={14} />
+                    <span>TÊN TÀI KHOẢN KHÔNG HỢP LỆ</span>
+                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-red-600 rotate-45"></div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
