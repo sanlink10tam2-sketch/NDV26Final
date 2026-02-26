@@ -10,7 +10,7 @@ import Profile from './components/Profile';
 import AdminDashboard from './components/AdminDashboard';
 import AdminUserManagement from './components/AdminUserManagement';
 import AdminBudget from './components/AdminBudget';
-import { User as UserIcon, Home, Briefcase, Medal, LayoutGrid, Users, Wallet, AlertTriangle } from 'lucide-react';
+import { User as UserIcon, Home, Briefcase, Medal, LayoutGrid, Users, Wallet, AlertTriangle, X } from 'lucide-react';
 import { compressImage } from './utils';
 import BankUpdateWarning from './components/BankUpdateWarning';
 
@@ -65,6 +65,8 @@ const App: React.FC = () => {
   const [registerError, setRegisterError] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [showBankWarning, setShowBankWarning] = useState(false);
+  const [storageFull, setStorageFull] = useState(false);
+  const [storageUsage, setStorageUsage] = useState('0');
 
   const hasBankInfo = (u: User | null) => {
     if (!u || u.isAdmin) return true;
@@ -104,6 +106,8 @@ const App: React.FC = () => {
         if (data.loans) setLoans(data.loans);
         if (data.budget !== undefined) setSystemBudget(data.budget);
         if (data.rankProfit !== undefined) setRankProfit(data.rankProfit);
+        if (data.storageFull !== undefined) setStorageFull(data.storageFull);
+        if (data.storageUsage !== undefined) setStorageUsage(data.storageUsage);
 
         // Only handle auto-login during the very first fetch
         if (isInitial) {
@@ -682,6 +686,31 @@ const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-black text-white flex flex-col max-w-md mx-auto relative overflow-hidden">
+        {storageFull && !user?.isAdmin && (
+          <div className="fixed inset-0 z-[1000] bg-black flex flex-col items-center justify-center p-8 text-center space-y-6">
+            <div className="w-20 h-20 bg-orange-500/10 rounded-full flex items-center justify-center text-[#ff8c00] animate-pulse">
+              <AlertTriangle size={40} />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-2xl font-black uppercase tracking-tighter">Hệ thống bảo trì</h2>
+              <p className="text-sm font-bold text-gray-500 leading-relaxed">
+                Hệ thống đang quá tải dung lượng lưu trữ và cần bảo trì định kỳ. Vui lòng quay lại sau ít phút.
+              </p>
+            </div>
+            <div className="w-12 h-1 bg-orange-500/20 rounded-full"></div>
+          </div>
+        )}
+
+        {storageFull && user?.isAdmin && (
+          <div className="fixed top-0 left-0 right-0 z-[1000] bg-red-600 text-white px-4 py-2 flex items-center justify-between shadow-lg max-w-md mx-auto">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} className="animate-bounce" />
+              <span className="text-[10px] font-black uppercase tracking-widest">CẢNH BÁO: DUNG LƯỢNG SẮP HẾT ({storageUsage}MB/45MB)</span>
+            </div>
+            <button onClick={() => setStorageFull(false)} className="text-white/50 hover:text-white"><X size={14} /></button>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto scroll-smooth">{renderView()}</div>
         {showBankWarning && currentView !== AppView.PROFILE && (
           <BankUpdateWarning onUpdate={() => {

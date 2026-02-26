@@ -7,10 +7,81 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABA
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
+const STORAGE_LIMIT_MB = 45; // Virtual limit for demo purposes
+
 const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+// Helper to estimate JSON size in MB
+const getStorageUsage = (data: any) => {
+  const str = JSON.stringify(data);
+  return (Buffer.byteLength(str, 'utf8') / (1024 * 1024));
+};
+
+// Auto-cleanup task: Delete notifications and old loans
+const autoCleanupStorage = async () => {
+  try {
+    const now = new Date();
+    
+    // 1. Cleanup Notifications: Keep only 7 most recent per user
+    const { data: users } = await supabase.from('users').select('id');
+    if (users) {
+      for (const user of users) {
+        const { data: notifs } = await supabase.from('notifications')
+          .select('id')
+          .eq('userId', user.id)
+          .order('id', { ascending: false });
+        
+        if (notifs && notifs.length > 7) {
+          const toDelete = notifs.slice(7).map(n => n.id);
+          await supabase.from('notifications').delete().in('id', toDelete);
+        }
+      }
+    }
+
+    // 2. Cleanup Loans:
+    // - Delete Rejected loans older than 3 days
+    // - Delete Settled loans older than 7 days
+    // Note: We use updatedAt if available, or parse createdAt
+    const { data: allLoans } = await supabase.from('loans').select('id, status, createdAt, updatedAt');
+    if (allLoans) {
+      const idsToDelete: string[] = [];
+      const threeDaysAgo = now.getTime() - (3 * 24 * 60 * 60 * 1000);
+      const sevenDaysAgo = now.getTime() - (7 * 24 * 60 * 60 * 1000);
+
+      for (const loan of allLoans) {
+        let loanTime = loan.updatedAt || 0;
+        if (!loanTime && loan.createdAt) {
+          // Parse "HH:mm:ss DD/MM/YYYY"
+          try {
+            const parts = loan.createdAt.split(' ');
+            if (parts.length === 2) {
+              const [d, m, y] = parts[1].split('/').map(Number);
+              const [h, min, s] = parts[0].split(':').map(Number);
+              loanTime = new Date(y, m - 1, d, h, min, s).getTime();
+            }
+          } catch (e) {}
+        }
+
+        if (loanTime) {
+          if (loan.status === 'BỊ TỪ CHỐI' && loanTime < threeDaysAgo) {
+            idsToDelete.push(loan.id);
+          } else if (loan.status === 'ĐÃ TẤT TOÁN' && loanTime < sevenDaysAgo) {
+            idsToDelete.push(loan.id);
+          }
+        }
+      }
+
+      if (idsToDelete.length > 0) {
+        await supabase.from('loans').delete().in('id', idsToDelete);
+      }
+    }
+  } catch (e) {
+    console.error("Lỗi auto-cleanup:", e);
+  }
+};
 
 // Supabase Status check for Admin
 app.get("/api/supabase-status", async (req, res) => {
@@ -48,12 +119,26 @@ app.get("/api/data", async (req, res) => {
     const budget = config?.find(c => c.key === 'budget')?.value || 30000000;
     const rankProfit = config?.find(c => c.key === 'rankProfit')?.value || 0;
 
-    res.json({
+    const payload = {
       users: users || [],
       loans: loans || [],
       notifications: notifications || [],
       budget,
       rankProfit
+    };
+
+    const usage = getStorageUsage(payload);
+    const isFull = usage > STORAGE_LIMIT_MB;
+
+    // Run cleanup in background if usage is high
+    if (usage > STORAGE_LIMIT_MB * 0.8) {
+      autoCleanupStorage();
+    }
+
+    res.json({
+      ...payload,
+      storageFull: isFull,
+      storageUsage: usage.toFixed(2)
     });
   } catch (e) {
     console.error("Lỗi trong /api/data:", e);
